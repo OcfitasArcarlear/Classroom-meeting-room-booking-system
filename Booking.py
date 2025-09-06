@@ -1,5 +1,6 @@
 # booking_web.py
 import streamlit as st
+import pandas as pd
 
 # ---------------- Models ----------------
 class Room:
@@ -82,10 +83,10 @@ system = st.session_state.system
 
 st.title("ระบบจองห้อง (Host / Booker)")
 
-# ---------------- Sidebar: Search and Add Room ----------------
+# Sidebar: Search and Add Room
 st.sidebar.header("ค้นหาห้อง")
 keyword = st.sidebar.text_input("ชื่อห้อง:")
-if keyword:
+if st.sidebar.button("ค้นหา"):
     rooms = system.search_rooms(keyword)
 else:
     rooms = system.get_all_rooms()
@@ -104,7 +105,7 @@ with st.sidebar.form("create_room_form"):
             host = HostUser(host_name)
             if system.add_room(Room(new_id, new_name, new_type, host)):
                 st.success(f"{host.username} สร้างห้อง {new_id} เรียบร้อยแล้ว")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("รหัสห้องนี้มีอยู่แล้ว")
 
@@ -115,54 +116,62 @@ for room in rooms:
     status = f"📌 จองโดย {room.booked_by.username}" if room.is_booked else "✅ พร้อมใช้งาน"
     room_data.append([room.room_id, room.name, room.room_type, room.owner.username, status])
 
-st.table(room_data)
+# ใช้ DataFrame เพื่อใส่ชื่อคอลัมน์
+df = pd.DataFrame(room_data, columns=["รหัสห้อง", "ชื่อห้อง", "ประเภท", "Host", "สถานะ"])
 
-# ---------------- Booking / Cancel Rooms ----------------
+# รีเซ็ต index ให้เรียง 1,2,3,...
+df.index = range(1, len(df) + 1)
+
+st.table(df)
+
+# ---------------- Booking / Cancel ----------------
 st.subheader("จอง / ยกเลิกห้อง")
-booker_name = st.text_input("ชื่อผู้จอง", key="booker_name")
+cols = st.columns(2)
+with cols[0]:
+    booker_name = st.text_input("ชื่อผู้จอง", key="booker_name")
+with cols[1]:
+    selected_room = st.selectbox("เลือกห้อง", [room.room_id for room in system.get_all_rooms()])
 
-for room in system.get_all_rooms():
-    cols = st.columns([3,1,1])
-    status = f"📌 จองโดย {room.booked_by.username}" if room.is_booked else "✅ พร้อมใช้งาน"
-    cols[0].write(f"{room.room_id} - {room.name} ({status})")
-    
-    if not room.is_booked:
-        if cols[1].button("จอง", key=f"book_{room.room_id}"):
-            if not booker_name:
-                st.warning("กรุณากรอกชื่อผู้จอง")
-            else:
-                booker = BookerUser(booker_name)
-                if system.book_room(room.room_id, booker):
-                    st.success(f"{booker.username} จองห้อง {room.room_id} เรียบร้อยแล้ว")
-                else:
-                    st.error("ไม่สามารถจองได้")
-                st.experimental_rerun()
+booking_action = st.radio("การดำเนินการ", ["จองห้อง", "ยกเลิกการจอง"])
+if st.button("ยืนยัน"):
+    if not booker_name:
+        st.warning("กรุณากรอกชื่อผู้จอง")
     else:
-        if cols[2].button("ยกเลิกการจอง", key=f"cancel_{room.room_id}"):
-            if not booker_name:
-                st.warning("กรุณากรอกชื่อผู้จอง")
+        booker = BookerUser(booker_name)
+        if booking_action == "จองห้อง":
+            if system.book_room(selected_room, booker):
+                st.success(f"{booker.username} จองห้อง {selected_room} เรียบร้อยแล้ว")
+                st.rerun()
             else:
-                booker = BookerUser(booker_name)
-                if system.cancel_booking(room.room_id, booker):
-                    st.success(f"{booker.username} ยกเลิกการจองห้อง {room.room_id} แล้ว")
-                else:
-                    st.error("ไม่สามารถยกเลิกการจองได้")
-                st.experimental_rerun()
+                st.error("ห้องนี้ถูกจองแล้ว")
+        else:
+            if system.cancel_booking(selected_room, booker):
+                st.success(f"{booker.username} ยกเลิกการจองห้อง {selected_room} แล้ว")
+                st.rerun()
+            else:
+                st.error("ไม่สามารถยกเลิกการจองได้")
 
-# ---------------- Delete Rooms ----------------
+# ---------------- Delete Room ----------------
 st.subheader("ลบห้อง")
 host_del_name = st.text_input("ชื่อ Host สำหรับลบห้อง", key="host_del")
+room_del = st.selectbox("เลือกห้องที่จะลบ", [room.room_id for room in system.get_all_rooms()], key="del_room")
 
-for room in system.get_all_rooms():
-    cols = st.columns([3,1])
-    cols[0].write(f"{room.room_id} - {room.name}")
-    if cols[1].button("ลบห้อง", key=f"del_{room.room_id}"):
-        if not host_del_name:
-            st.warning("กรุณากรอกชื่อ Host")
+if st.button("ลบห้อง"):
+    if not host_del_name:
+        st.warning("กรุณากรอกชื่อ Host")
+    else:
+        host = HostUser(host_del_name)
+        if system.remove_room(room_del, host):
+            st.success(f"ห้อง {room_del} ถูกลบเรียบร้อยแล้ว")
+            st.rerun()
         else:
-            host = HostUser(host_del_name)
-            if system.remove_room(room.room_id, host):
-                st.success(f"ห้อง {room.room_id} ถูกลบเรียบร้อยแล้ว")
+            # หาเจ้าของจริง ๆ ของห้อง เพื่อบอกสาเหตุ
+            room_owner = None
+            for r in system.get_all_rooms():
+                if r.room_id == room_del:
+                    room_owner = r.owner.username
+                    break
+            if room_owner and room_owner != host_del_name:
+                st.error(f"ไม่สามารถลบห้องได้: เจ้าของห้องคือ {room_owner}")
             else:
-                st.error("ไม่สามารถลบห้องได้ (คุณไม่ใช่เจ้าของห้อง หรือมีการจองอยู่)")
-            st.experimental_rerun()
+                st.error("ไม่สามารถลบห้องได้ (อาจมีการจองอยู่)")
